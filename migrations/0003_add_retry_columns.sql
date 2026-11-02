@@ -1,0 +1,2 @@
+ALTER TABLE migrations ADD COLUMN retry_count INTEGER DEFAULT 0;
+ALTER TABLE migrations ADD COLUMN failed_at INTEGER;

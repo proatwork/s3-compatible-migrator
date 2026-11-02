@@ -1,0 +1,87 @@
+// Copy to wrangler.jsonc (gitignored), fill in your values, then run `pnpm cf-typegen`.
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "s3-migrator",
+	"main": "src/index.ts",
+	// Set your account here or through the CLOUDFLARE_ACCOUNT_ID environment variable.
+	// "account_id": "<YOUR_CLOUDFLARE_ACCOUNT_ID>",
+	"compatibility_date": "2026-04-22",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"workers_dev": false,
+	// The Worker's HTTP routes have no authentication, including ones that delete migration state.
+	// Put any hostname you add behind Cloudflare Access or similar.
+	// "routes": [
+	// 	{
+	// 		"pattern": "migrator.example.com",
+	// 		"zone_name": "example.com",
+	// 		"custom_domain": true
+	// 	}
+	// ],
+
+	"triggers": {
+		"crons": ["* * * * *"]
+	},
+
+	"queues": {
+		"producers": [
+			{
+				"binding": "MIGRATION_QUEUE",
+				"queue": "s3-migrator-jobs"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "s3-migrator-jobs",
+				"max_batch_size": 25,
+				"max_batch_timeout": 5
+			}
+		]
+	},
+
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "MULTIPART_MIGRATOR",
+				"class_name": "MultipartMigratorV4"
+			}
+		]
+	},
+
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["MultipartMigratorV4"]
+		}
+	],
+
+	"d1_databases": [
+		{
+			"binding": "MIGRATION_DB",
+			"database_name": "s3-migrator-registry",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+
+	"vars": {
+		// Provider is one of: "s3", "r2", "b2".
+		"SOURCE_PROVIDER": "r2",
+		"SOURCE_ENDPOINT": "https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com",
+		"SOURCE_BUCKET": "my-source-bucket",
+		"SOURCE_REGION": "auto",
+		"SOURCE_PREFIX": "",
+		"DESTINATION_PROVIDER": "s3",
+		"DESTINATION_ENDPOINT": "https://s3.us-east-1.amazonaws.com",
+		"DESTINATION_BUCKET": "my-destination-bucket",
+		"DESTINATION_REGION": "us-east-1"
+	}
+	// Secrets (set via `wrangler secret put`):
+	// SOURCE_ACCESS_KEY_ID
+	// SOURCE_SECRET_ACCESS_KEY
+	// DESTINATION_ACCESS_KEY_ID
+	// DESTINATION_SECRET_ACCESS_KEY
+}

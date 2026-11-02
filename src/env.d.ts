@@ -1,0 +1,7 @@
+interface Env {
+	SOURCE_ACCESS_KEY_ID: string;
+	SOURCE_SECRET_ACCESS_KEY: string;
+	DESTINATION_ACCESS_KEY_ID: string;
+	DESTINATION_SECRET_ACCESS_KEY: string;
+	MIGRATION_DB: D1Database;
+}

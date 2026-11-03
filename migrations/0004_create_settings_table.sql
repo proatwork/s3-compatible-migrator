@@ -3,5 +3,5 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
-INSERT INTO settings (key, value) VALUES ('cron_enabled', 'true');
+INSERT INTO settings (key, value) VALUES ('cron_enabled', 'false');
 INSERT INTO settings (key, value) VALUES ('cron_last_ran', '0');

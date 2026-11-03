@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"strict": true,
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"jsx": "preserve",
+		"noEmit": true,
+		"isolatedModules": true,
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": true,
+		"types": ["vite/client", "node"]
+	},
+	"include": ["src/**/*.ts", "src/**/*.vue", "vite.config.mts", "../tests/dashboard/**/*.ts"]
+}

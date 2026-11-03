@@ -1,8 +1,7 @@
-import type { BucketConfig, StorageProvider } from '../types';
+import type { BucketConfig } from '../types';
 
 export function buildSourceConfig(env: Env): BucketConfig {
 	return {
-		provider: env.SOURCE_PROVIDER as StorageProvider,
 		endpoint: env.SOURCE_ENDPOINT,
 		bucket: env.SOURCE_BUCKET,
 		region: env.SOURCE_REGION,
@@ -13,7 +12,6 @@ export function buildSourceConfig(env: Env): BucketConfig {
 
 export function buildDestinationConfig(env: Env): BucketConfig {
 	return {
-		provider: env.DESTINATION_PROVIDER as StorageProvider,
 		endpoint: env.DESTINATION_ENDPOINT,
 		bucket: env.DESTINATION_BUCKET,
 		region: env.DESTINATION_REGION,

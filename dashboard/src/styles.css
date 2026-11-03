@@ -1,0 +1,95 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e1e4e8; padding: 24px; }
+h1 { font-size: 1.4rem; font-weight: 600; color: #f0f3f6; }
+h2 { font-size: 1rem; font-weight: 600; color: #f0f3f6; margin-bottom: 12px; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.header-left { display: flex; align-items: center; gap: 16px; }
+.cron-last-ran { font-size: 0.75rem; color: #8b949e; }
+.cron-toggle { display: flex; align-items: center; gap: 8px; }
+.cron-toggle label { font-size: 0.75rem; color: #8b949e; cursor: pointer; user-select: none; }
+.toggle-switch { position: relative; width: 36px; height: 20px; cursor: pointer; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: #3d1114; border-radius: 10px; transition: background 0.2s; }
+.toggle-slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; bottom: 3px; background: #e1e4e8; border-radius: 50%; transition: transform 0.2s; }
+.toggle-switch input:checked + .toggle-slider { background: #0d3520; }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+.header-right { display: flex; align-items: center; gap: 16px; }
+.refresh-indicator { font-size: 0.7rem; color: #8b949e; display: flex; align-items: center; gap: 6px; }
+.refresh-dot { width: 8px; height: 8px; border-radius: 50%; background: #30363d; border: 1px solid #484f58; transition: background 0.2s, border-color 0.2s; }
+.refresh-dot.active { background: #3fb950; border-color: #3fb950; }
+.summary { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+.card { background: #1c1f26; border: 1px solid #2d333b; border-radius: 8px; padding: 16px 20px; min-width: 140px; }
+.card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; margin-bottom: 4px; }
+.card .value { font-size: 1.5rem; font-weight: 700; }
+.card.completed .value { color: #3fb950; }
+.card.in-progress .value { color: #d29922; }
+.card.failed .value { color: #f85149; }
+.grid-section { margin-bottom: 24px; }
+.migration-grid { display: flex; flex-wrap: wrap; gap: 2px; background: #1c1f26; border: 1px solid #2d333b; border-radius: 8px; padding: 8px; }
+.grid-cell { width: 15px; height: 15px; border-radius: 2px; cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; flex-shrink: 0; }
+.grid-cell:hover { transform: scale(1.8); z-index: 1; box-shadow: 0 0 6px rgba(255,255,255,0.2); }
+.grid-cell.completed { background: #238636; }
+.grid-cell.in-progress { background: #9e6a03; animation: pulse 2s ease-in-out infinite; }
+.grid-cell.failed { background: #da3633; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.tooltip { position: fixed; background: #161b22; border: 1px solid #484f58; border-radius: 6px; padding: 10px 14px; font-size: 0.8rem; color: #e1e4e8; pointer-events: none; z-index: 100; display: none; max-width: 400px; line-height: 1.5; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+.tooltip .tt-key { font-family: monospace; font-size: 0.75rem; color: #8b949e; word-break: break-all; margin-bottom: 4px; }
+.tooltip .tt-row { display: flex; gap: 12px; font-size: 0.75rem; }
+.tooltip .tt-label { color: #8b949e; }
+table { width: 100%; border-collapse: collapse; background: #1c1f26; border-radius: 8px 8px 0 0; overflow: hidden; border: 1px solid #2d333b; border-bottom: none; }
+th { text-align: left; padding: 10px 14px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; background: #161b22; border-bottom: 1px solid #2d333b; }
+td { padding: 10px 14px; font-size: 0.85rem; border-bottom: 1px solid #21262d; }
+tr:last-child td { border-bottom: none; }
+tr:hover { background: #21262d; }
+.key { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 0.8rem; }
+.badge { padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+.badge.completed { background: #0d3520; color: #3fb950; }
+.badge.in-progress { background: #3d2e00; color: #d29922; }
+.badge.failed { background: #3d1114; color: #f85149; }
+.progress-cell { display: flex; align-items: center; gap: 8px; }
+.progress-bar { width: 80px; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: #3fb950; border-radius: 3px; transition: width 0.3s; }
+.progress-text { font-size: 0.75rem; color: #8b949e; white-space: nowrap; }
+.retry-count { font-size: 0.65rem; color: #d29922; }
+.empty { text-align: center; padding: 40px; color: #8b949e; }
+.table-footer { text-align: center; padding: 14px; color: #8b949e; font-size: 0.85rem; background: #1c1f26; border: 1px solid #2d333b; border-top: none; border-radius: 0 0 8px 8px; }
+.retry-btn, .abort-btn { border-radius: 6px; padding: 6px 14px; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: background 0.2s; border: 1px solid; }
+.retry-btn { background: #3d1114; color: #f85149; border-color: #f8514933; }
+.retry-btn:hover { background: #5a1a1e; }
+.abort-btn { background: #3d2e00; color: #d29922; border-color: #d2992233; }
+.abort-btn:hover { background: #5a4400; }
+.retry-btn:disabled, .abort-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.abort-row-btn { background: none; border: 1px solid #d2992233; color: #d29922; border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; cursor: pointer; transition: background 0.2s; }
+.abort-row-btn:hover { background: #3d2e00; }
+.abort-row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.discovery-status { font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+.discovery-status.complete { background: #0d3520; color: #3fb950; }
+.discovery-status.scanning { background: #3d2e00; color: #d29922; }
+.card .retry-btn, .card .abort-btn { margin-top: 8px; }
+.connection-lost { position: fixed; right: 16px; bottom: 16px; z-index: 100; padding: 6px 12px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: #3d1114; color: #f85149; }
+.badge.not-started { background: #21262d; color: #8b949e; }
+.source-files { margin-top: 24px; }
+.source-files .table-footer { display: flex; justify-content: center; align-items: center; gap: 12px; }
+.source-files .empty.failed-state { color: #f85149; }
+.page-btn { background: none; border: 1px solid #484f58; color: #e1e4e8; border-radius: 4px; padding: 4px 10px; font-size: 0.75rem; cursor: pointer; transition: background 0.2s; }
+.page-btn:hover:not(:disabled) { background: #21262d; }
+.page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.processing-controls { display: flex; gap: 8px; }
+.start-btn, .pause-btn { border-radius: 6px; padding: 6px 14px; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: background 0.2s; border: 1px solid; }
+.start-btn { background: #0d3520; color: #3fb950; border-color: #3fb95033; }
+.start-btn:hover:not(:disabled) { background: #14502f; }
+.pause-btn { background: #3d2e00; color: #d29922; border-color: #d2992233; }
+.pause-btn:hover:not(:disabled) { background: #5a4400; }
+.start-btn:disabled, .pause-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.discovery-status.paused { background: #21262d; color: #e1e4e8; }
+.grid-cell.queued { background: #484f58; }
+.badge.queued { background: #21262d; color: #8b949e; }
+.grid-cell.skipped { background: #1b7c83; }
+.badge.skipped { background: #0d2f33; color: #39c5cf; }
+.card.skipped .value { color: #39c5cf; }
+.reset-btn { border-radius: 6px; padding: 6px 14px; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: background 0.2s; border: 1px solid #f8514933; background: #3d1114; color: #f85149; }
+.reset-btn:hover:not(:disabled) { background: #5a1a1e; }
+.reset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.card.throttled .value { color: #bc8cff; }
+.grid-cell.throttled { background: #8957e5; animation: pulse 2s ease-in-out infinite; }
+.badge.throttled { background: #2a1d4a; color: #bc8cff; }

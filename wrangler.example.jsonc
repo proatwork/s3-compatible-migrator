@@ -11,6 +11,15 @@
 		"enabled": true
 	},
 	"upload_source_maps": true,
+	"build": {
+		"command": "pnpm build:dashboard",
+		"watch_dir": "dashboard/src"
+	},
+	"assets": {
+		"directory": "./dashboard/dist",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*", "/health"]
+	},
 	"workers_dev": false,
 	// The Worker's HTTP routes have no authentication, including ones that delete migration state.
 	// Put any hostname you add behind Cloudflare Access or similar.
@@ -46,7 +55,7 @@
 		"bindings": [
 			{
 				"name": "MULTIPART_MIGRATOR",
-				"class_name": "MultipartMigratorV4"
+				"class_name": "FileMigrator"
 			}
 		]
 	},
@@ -54,7 +63,7 @@
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_sqlite_classes": ["MultipartMigratorV4"]
+			"new_sqlite_classes": ["FileMigrator"]
 		}
 	],
 
@@ -68,13 +77,10 @@
 	],
 
 	"vars": {
-		// Provider is one of: "s3", "r2", "b2".
-		"SOURCE_PROVIDER": "r2",
 		"SOURCE_ENDPOINT": "https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com",
 		"SOURCE_BUCKET": "my-source-bucket",
 		"SOURCE_REGION": "auto",
 		"SOURCE_PREFIX": "",
-		"DESTINATION_PROVIDER": "s3",
 		"DESTINATION_ENDPOINT": "https://s3.us-east-1.amazonaws.com",
 		"DESTINATION_BUCKET": "my-destination-bucket",
 		"DESTINATION_REGION": "us-east-1"

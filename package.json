@@ -2,16 +2,28 @@
 	"name": "s3-migrator",
 	"version": "0.0.0",
 	"private": true,
+	"packageManager": "pnpm@8.15.9",
+	"engines": {
+		"node": ">=22.18"
+	},
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
-		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
-		"migrate" : "wrangler d1 migrations apply MIGRATION_DB --local"
+		"db:migrate:local": "wrangler d1 migrations apply MIGRATION_DB --local",
+		"db:migrate:remote": "wrangler d1 migrations apply MIGRATION_DB --remote",
+		"build:dashboard": "vite build --config dashboard/vite.config.mts",
+		"dev:dashboard": "vite --config dashboard/vite.config.mts",
+		"typecheck": "tsc --noEmit && vue-tsc --noEmit -p dashboard/tsconfig.json",
+		"test": "node --test \"tests/**/*.test.ts\""
 	},
 	"devDependencies": {
 		"@types/node": "^25.9.9",
+		"@vitejs/plugin-vue": "^6.0.10",
 		"typescript": "^5.9.3",
+		"vite": "^8.3.5",
+		"vue": "^3.5.44",
+		"vue-tsc": "^3.3.14",
 		"wrangler": "^4.156.2"
 	}
 }

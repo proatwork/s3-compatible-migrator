@@ -50,14 +50,15 @@ function getDateStrings(): { dateStamp: string; amzDate: string } {
 	return { dateStamp, amzDate };
 }
 
-function uriEncodeSegment(str: string): string {
-	return encodeURIComponent(str);
+// SigV4 requires RFC 3986 encoding, which also covers the characters encodeURIComponent leaves alone.
+export function uriEncodeSegment(str: string): string {
+	return encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 function encodeCanonicalUri(pathname: string): string {
 	return pathname
 		.split('/')
-		.map((segment) => encodeURIComponent(decodeURIComponent(segment)))
+		.map((segment) => uriEncodeSegment(decodeURIComponent(segment)))
 		.join('/');
 }
 
@@ -86,7 +87,7 @@ export async function signRequest(
 	const canonicalHeaders = signedHeaderKeys.map((k) => `${k}:${normalizedHeaders[k]}\n`).join('');
 
 	const sortedParams = [...parsedUrl.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
-	const canonicalQueryString = sortedParams.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+	const canonicalQueryString = sortedParams.map(([k, v]) => `${uriEncodeSegment(k)}=${uriEncodeSegment(v)}`).join('&');
 
 	const canonicalUri = encodeCanonicalUri(parsedUrl.pathname);
 

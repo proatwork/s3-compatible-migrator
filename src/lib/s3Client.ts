@@ -1,16 +1,26 @@
 import type { BucketConfig, S3ListObject } from '../types';
-import { signRequest } from './s3Signing';
+import { signRequest, uriEncodeSegment } from './s3Signing';
+import { hasDotSegment } from './skipRules';
+import { isThrottledResponse, S3ThrottledError } from './throttle';
+import { decodeXmlEntities } from './xml';
 
 function buildUrl(config: BucketConfig, key?: string): string {
 	const base = config.endpoint.replace(/\/$/, '');
+	if (key && hasDotSegment(key)) throw new Error(`Refusing key with a dot segment: ${key}`);
 	if (key) {
 		const encodedKey = key
 			.split('/')
-			.map((segment) => encodeURIComponent(segment))
+			.map((segment) => uriEncodeSegment(segment))
 			.join('/');
 		return `${base}/${config.bucket}/${encodedKey}`;
 	}
 	return `${base}/${config.bucket}`;
+}
+
+function throwIfThrottled(operation: string, status: number, body?: string): void {
+	if (isThrottledResponse(status, body)) {
+		throw new S3ThrottledError(`${operation} throttled: ${status}`);
+	}
 }
 
 function credentials(config: BucketConfig) {
@@ -25,7 +35,7 @@ async function signedFetch(
 	url: string,
 	config: BucketConfig,
 	headers: Record<string, string> = {},
-	body?: ReadableStream | null,
+	body?: ReadableStream | string | null,
 ): Promise<Response> {
 	const signed = await signRequest(method, url, headers, credentials(config), config.region);
 
@@ -34,7 +44,7 @@ async function signedFetch(
 		headers: signed.headers,
 		body: body ?? undefined,
 		// @ts-expect-error — Cloudflare Workers supports duplex for streaming uploads
-		duplex: body ? 'half' : undefined,
+		duplex: body instanceof ReadableStream ? 'half' : undefined,
 	});
 }
 
@@ -51,9 +61,9 @@ export async function s3ListObjects(
 	if (prefix) url.searchParams.set('prefix', prefix);
 	if (continuationToken) url.searchParams.set('continuation-token', continuationToken);
 	if (startAfter) url.searchParams.set('start-after', startAfter);
-
 	const response = await signedFetch('GET', url.toString(), config);
 	const xml = await response.text();
+	throwIfThrottled('ListObjects', response.status, xml);
 
 	if (!response.ok) {
 		throw new Error(`ListObjects failed: ${response.status} — ${xml}`);
@@ -63,17 +73,15 @@ export async function s3ListObjects(
 	const contentMatches = xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g);
 	for (const match of contentMatches) {
 		const block = match[1];
-		const key = block.match(/<Key>(.*?)<\/Key>/)?.[1] ?? '';
+		const key = decodeXmlEntities(block.match(/<Key>(.*?)<\/Key>/)?.[1] ?? '');
 		const size = parseInt(block.match(/<Size>(.*?)<\/Size>/)?.[1] ?? '0', 10);
 		const lastModified = block.match(/<LastModified>(.*?)<\/LastModified>/)?.[1] ?? '';
-		const etag = block.match(/<ETag>(.*?)<\/ETag>/)?.[1] ?? '';
-		objects.push({ key, size, lastModified, etag });
+		objects.push({ key, size, lastModified });
 	}
 
 	const isTruncated = xml.includes('<IsTruncated>true</IsTruncated>');
-	const nextToken = isTruncated
-		? (xml.match(/<NextContinuationToken>(.*?)<\/NextContinuationToken>/)?.[1] ?? null)
-		: null;
+	const rawToken = isTruncated ? xml.match(/<NextContinuationToken>(.*?)<\/NextContinuationToken>/)?.[1] : undefined;
+	const nextToken = rawToken ? decodeXmlEntities(rawToken) : null;
 
 	return { objects, nextToken };
 }
@@ -81,18 +89,17 @@ export async function s3ListObjects(
 export async function s3HeadObject(
 	config: BucketConfig,
 	key: string,
-): Promise<{ size: number; etag: string; lastModified: string }> {
+): Promise<{ size: number }> {
 	const url = buildUrl(config, key);
 	const response = await signedFetch('HEAD', url, config);
 
 	if (!response.ok) {
+		throwIfThrottled(`HEAD ${key}`, response.status);
 		throw new Error(`HEAD ${key} failed: ${response.status} ${response.statusText}`);
 	}
 
 	return {
 		size: parseInt(response.headers.get('content-length') ?? '0', 10),
-		etag: response.headers.get('etag') ?? '',
-		lastModified: response.headers.get('last-modified') ?? '',
 	};
 }
 
@@ -110,6 +117,7 @@ export async function s3GetObject(
 	const response = await signedFetch('GET', url, config, headers);
 
 	if (!response.ok) {
+		throwIfThrottled(`GET ${key}`, response.status, await response.text());
 		throw new Error(`GET ${key} failed: ${response.status} ${response.statusText}`);
 	}
 
@@ -123,6 +131,7 @@ export async function s3CreateMultipartUpload(
 	const url = buildUrl(config, key) + '?uploads';
 	const response = await signedFetch('POST', url, config);
 	const xml = await response.text();
+	throwIfThrottled('CreateMultipartUpload', response.status, xml);
 
 	if (!response.ok) {
 		throw new Error(`CreateMultipartUpload failed: ${response.status} — ${xml}`);
@@ -133,7 +142,7 @@ export async function s3CreateMultipartUpload(
 		throw new Error(`CreateMultipartUpload response missing UploadId: ${xml}`);
 	}
 
-	return uploadId;
+	return decodeXmlEntities(uploadId);
 }
 
 export async function s3UploadPart(
@@ -155,6 +164,7 @@ export async function s3UploadPart(
 
 	if (!response.ok) {
 		const text = await response.text();
+		throwIfThrottled(`UploadPart ${partNumber}`, response.status, text);
 		throw new Error(`UploadPart ${partNumber} failed: ${response.status} — ${text}`);
 	}
 
@@ -187,15 +197,13 @@ export async function s3CompleteMultipartUpload(
 		'content-length': new TextEncoder().encode(body).length.toString(),
 	};
 
-	const signed = await signRequest('POST', url, headers, credentials(config), config.region);
-	const response = await fetch(signed.url, {
-		method: 'POST',
-		headers: signed.headers,
-		body,
-	});
+	const response = await signedFetch('POST', url, config, headers, body);
 
-	if (!response.ok) {
-		const text = await response.text();
+	// This call can report an error in the body of a 200, so the body is always checked.
+	const text = await response.text();
+	throwIfThrottled('CompleteMultipartUpload', response.status, text);
+
+	if (!response.ok || text.includes('<Error>')) {
 		throw new Error(`CompleteMultipartUpload failed: ${response.status} — ${text}`);
 	}
 }
@@ -216,7 +224,6 @@ export async function s3AbortMultipartUpload(
 	}
 }
 
-
 export async function s3PutObject(
 	config: BucketConfig,
 	key: string,
@@ -236,6 +243,7 @@ export async function s3PutObject(
 
 	if (!response.ok) {
 		const text = await response.text();
+		throwIfThrottled(`PUT ${key}`, response.status, text);
 		throw new Error(`PUT ${key} failed: ${response.status} — ${text}`);
 	}
 }

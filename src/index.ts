@@ -1,20 +1,30 @@
-import { getMigrationData } from './dashboard/api';
-import { renderDashboard } from './dashboard/template';
+import { HTTP_NOT_FOUND, MAX_FILE_RETRIES, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_THROTTLED } from './constants';
+import { getMigrationData, getSourceFiles } from './dashboard/api';
 import { handleScheduled } from './handlers/cronHandler';
 import { handleQueue } from './handlers/queueHandler';
+import { abortMigrators } from './lib/durableObjects';
+import { markFailedStatement } from './lib/migrationRows';
+import { resetTransfers } from './lib/resetTransfers';
 import { retryFailedJobs } from './lib/retryFailedJobs';
-import { setSetting } from './lib/settings';
+import { resetDiscovery, setSetting, SETTING_CRON_ENABLED } from './lib/settings';
 import type { QueueMessage } from './types';
 
-export { MultipartMigratorV4 } from './durable-objects/multipartMigrator';
+export { FileMigrator } from './durable-objects/fileMigrator';
+
+const JSON_HEADERS = { 'content-type': 'application/json' };
+const HTTP_BAD_GATEWAY = 502;
+
+function jsonResponse(body: unknown, status?: number): Response {
+	return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
 
 export default {
-	async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-		console.warn(`⏲️ Cron triggered`);
+	async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+		console.log('[Cron] Triggered');
 		await handleScheduled(env);
 	},
 
-	async queue(batch: MessageBatch<QueueMessage>, env: Env, ctx: ExecutionContext): Promise<void> {
+	async queue(batch: MessageBatch<QueueMessage>, env: Env): Promise<void> {
 		await handleQueue(batch, env);
 	},
 
@@ -25,48 +35,10 @@ export default {
 			return new Response('ok');
 		}
 
-		if (url.pathname === '/trigger') {
-			ctx.waitUntil(handleScheduled(env));
-			return new Response('Migration scan triggered');
-		}
-
-		if (url.pathname === '/reset-all') {
-			const rows = await env.MIGRATION_DB.prepare(
-				'SELECT key FROM migrations',
-			).all<{ key: string }>();
-
-			const BATCH_SIZE = 20;
-			let resetCount = 0;
-			for (let i = 0; i < rows.results.length; i += BATCH_SIZE) {
-				const batch = rows.results.slice(i, i + BATCH_SIZE);
-				const results = await Promise.allSettled(
-					batch.map(row => {
-						const doId = env.MULTIPART_MIGRATOR.idFromName(row.key);
-						const stub = env.MULTIPART_MIGRATOR.get(doId);
-						return stub.fetch(new Request('https://do.internal/reset', { method: 'DELETE' }));
-					}),
-				);
-				resetCount += results.filter(r => r.status === 'fulfilled').length;
-			}
-
-			await env.MIGRATION_DB.prepare('DELETE FROM migrations').run();
-
-			return new Response(`Reset ${resetCount} DOs and cleared D1 registry`);
-		}
-
-		if (url.pathname === '/' || url.pathname === '/dashboard') {
-			const data = await getMigrationData(env.MIGRATION_DB);
-			return new Response(renderDashboard(data), {
-				headers: { 'content-type': 'text/html; charset=utf-8' },
-			});
-		}
-
 		if (url.pathname === '/api/settings' && request.method === 'POST') {
 			const body = await request.json() as { key: string; value: string };
 			await setSetting(env.MIGRATION_DB, body.key, body.value);
-			return new Response(JSON.stringify({ key: body.key, value: body.value }), {
-				headers: { 'content-type': 'application/json' },
-			});
+			return jsonResponse({ key: body.key, value: body.value });
 		}
 
 		if (url.pathname === '/api/settings' && request.method === 'GET') {
@@ -75,79 +47,77 @@ export default {
 			for (const row of rows.results) {
 				settings[row.key] = row.value;
 			}
-			return new Response(JSON.stringify(settings), {
-				headers: { 'content-type': 'application/json' },
-			});
-		}
-
-		if (url.pathname === '/api/failed') {
-			const rows = await env.MIGRATION_DB.prepare(
-				'SELECT key, status, file_size, total_chunks, chunks_done, retry_count, created_at, completed_at, failed_at FROM migrations WHERE status = ? ORDER BY failed_at DESC',
-			).bind('failed').all();
-			return new Response(JSON.stringify(rows.results), {
-				headers: { 'content-type': 'application/json' },
-			});
+			return jsonResponse(settings);
 		}
 
 		if (url.pathname === '/api/abort-job' && request.method === 'POST') {
 			const { key } = await request.json() as { key: string };
-			const doId = env.MULTIPART_MIGRATOR.idFromName(key);
-			const stub = env.MULTIPART_MIGRATOR.get(doId);
-			const doResp = await stub.fetch(new Request('https://do.internal/abort', { method: 'POST' }));
+			// No job in the Durable Object also counts, since nothing is running for that row.
+			const aborted = (await abortMigrators(env, [key])).failed.length === 0;
 
-			if (doResp.ok) {
-				await env.MIGRATION_DB.prepare(
-					'UPDATE migrations SET status = ?, failed_at = ? WHERE key = ?',
-				).bind('failed', Math.floor(Date.now() / 1000), key).run();
+			if (aborted) {
+				await markFailedStatement(env.MIGRATION_DB, 'key = ? AND status != ?', MAX_FILE_RETRIES, key, STATUS_COMPLETED).run();
 			}
 
-			return new Response(JSON.stringify({ aborted: doResp.ok, key }), {
-				headers: { 'content-type': 'application/json' },
-			});
+			return jsonResponse({ aborted, key });
 		}
 
 		if (url.pathname === '/api/abort-all' && request.method === 'POST') {
 			const rows = await env.MIGRATION_DB.prepare(
-				'SELECT key FROM migrations WHERE status = ?',
-			).bind('in_progress').all<{ key: string }>();
+				'SELECT key FROM migrations WHERE status IN (?, ?)',
+			).bind(STATUS_IN_PROGRESS, STATUS_THROTTLED).all<{ key: string }>();
 
-			let aborted = 0;
-			const BATCH_SIZE = 20;
-			for (let i = 0; i < rows.results.length; i += BATCH_SIZE) {
-				const batch = rows.results.slice(i, i + BATCH_SIZE);
-				const results = await Promise.allSettled(
-					batch.map(row => {
-						const doId = env.MULTIPART_MIGRATOR.idFromName(row.key);
-						const stub = env.MULTIPART_MIGRATOR.get(doId);
-						return stub.fetch(new Request('https://do.internal/abort', { method: 'POST' }));
-					}),
-				);
-				aborted += results.filter(r => r.status === 'fulfilled' && (r.value as Response).ok).length;
+			const result = await abortMigrators(env, rows.results.map(row => row.key));
+
+			// A job that couldn't be reached may still be copying, so its row keeps counting toward the concurrency limit.
+			const stopped = [...result.succeeded, ...result.notFound];
+			if (stopped.length > 0) {
+				await env.MIGRATION_DB.batch(stopped.map(key =>
+					markFailedStatement(env.MIGRATION_DB, 'key = ? AND status IN (?, ?)', MAX_FILE_RETRIES, key, STATUS_IN_PROGRESS, STATUS_THROTTLED),
+				));
 			}
+			if (result.failed.length > 0) console.warn(`[AbortAll] Could not reach ${result.failed.length} jobs, leaving them running`);
 
-			await env.MIGRATION_DB.prepare(
-				'UPDATE migrations SET status = ?, failed_at = ? WHERE status = ?',
-			).bind('failed', Math.floor(Date.now() / 1000), 'in_progress').run();
-
-			return new Response(JSON.stringify({ aborted }), {
-				headers: { 'content-type': 'application/json' },
-			});
+			return jsonResponse({ aborted: stopped.length, unreachable: result.failed.length });
 		}
 
 		if (url.pathname === '/api/retry-failed' && request.method === 'POST') {
 			const count = await retryFailedJobs(env);
-			return new Response(JSON.stringify({ retried: count }), {
-				headers: { 'content-type': 'application/json' },
-			});
+			ctx.waitUntil(handleScheduled(env));
+			return jsonResponse({ retried: count });
+		}
+
+		if (url.pathname === '/api/start' && request.method === 'POST') {
+			await setSetting(env.MIGRATION_DB, SETTING_CRON_ENABLED, 'true');
+			await resetDiscovery(env.MIGRATION_DB);
+			ctx.waitUntil(retryFailedJobs(env).then(() => handleScheduled(env)));
+			return jsonResponse({ started: true });
+		}
+
+		if (url.pathname === '/api/pause' && request.method === 'POST') {
+			await setSetting(env.MIGRATION_DB, SETTING_CRON_ENABLED, 'false');
+			return jsonResponse({ paused: true });
+		}
+
+		if (url.pathname === '/api/reset' && request.method === 'POST') {
+			const reset = await resetTransfers(env);
+			return jsonResponse({ reset });
+		}
+
+		if (url.pathname === '/api/source-files') {
+			try {
+				const page = await getSourceFiles(env, url.searchParams.get('cursor') ?? undefined);
+				return jsonResponse(page);
+			} catch (err) {
+				console.error('[Dashboard] Failed to list source files:', err);
+				return jsonResponse({ error: 'Failed to list source files' }, HTTP_BAD_GATEWAY);
+			}
 		}
 
 		if (url.pathname === '/api/migrations') {
-			const data = await getMigrationData(env.MIGRATION_DB);
-			return new Response(JSON.stringify(data), {
-				headers: { 'content-type': 'application/json' },
-			});
+			return jsonResponse(await getMigrationData(env.MIGRATION_DB));
 		}
 
-		return new Response('Not found', { status: 404 });
+		return new Response('Not found', { status: HTTP_NOT_FOUND });
 	},
 } satisfies ExportedHandler<Env, QueueMessage>;

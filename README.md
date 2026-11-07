@@ -2,6 +2,8 @@
 
 A Cloudflare Worker that copies every object from one S3-compatible bucket to another (AWS S3, Cloudflare R2, Backblaze B2 and others) and keeps the destination in sync. It runs entirely on Workers, with no servers or VMs, and comes with a dashboard for starting, pausing and watching transfers.
 
+Tested with real data (83TB transferred in ~40hrs, averaging ~5000Mb/s)
+
 ## How it works
 
 ```mermaid
